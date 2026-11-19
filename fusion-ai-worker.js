@@ -42,6 +42,7 @@ export default {
     const role = clean(body.role, 120) || 'a friendly native English speaker named Alex';
     const scenario = clean(body.scenario, 200) || 'a casual chat';
     const level = clean(body.level, 30) || 'basic';
+    const vi = body.inputLang === 'vi';
     const msgs = (Array.isArray(body.messages) ? body.messages : [])
       .filter(m => m && (m.role === 'user' || m.role === 'assistant'))
       .slice(-24)
@@ -50,6 +51,7 @@ export default {
     const LEVEL = {
       beginner: 'The learner is a beginner: use very common words, short sentences, speak a little slower and clearer, and never use idioms.',
       basic: 'The learner is elementary: use simple everyday words and short sentences. An easy phrasal verb or common expression is fine.',
+      auto: 'Work out the learner\'s level from how they speak. Start simple. When they answer easily and in full sentences, raise the difficulty gradually (longer sentences, richer vocabulary, "why" and "how" follow-ups). When they struggle or go quiet, simplify and slow down.',
       intermediate: 'The learner is intermediate: speak at normal natural speed with everyday idioms, phrasal verbs and contractions, like you would with a friend.',
     };
 
@@ -68,6 +70,8 @@ export default {
         `- If what they said is garbled, does not make sense, or does not fit the conversation, do NOT pretend to understand and do NOT guess wildly. Say so naturally ("Sorry, I didn't catch that", "Sorry, did you say ...?") and ask them to repeat. If they are quiet or stuck, help gently with a simple, easy question.\n` +
         `- If the scenario is a role (barista, receptionist, doctor...), stay in that role and act realistically with natural small talk, not a script.\n` +
         `${LEVEL[level] || LEVEL.basic}\n` +
+        (vi ? `The learner is speaking VIETNAMESE right now (speech recognition in Vietnamese). Understand it and answer as their English teacher in simple, natural English only. When it helps, add one short phrase showing how to say their idea in English.\n` : '') +
+        `A message in parentheses is a stage note for you, not something the learner said.\n` +
         `Their words come from speech recognition: no punctuation or capital letters, and sometimes a wrong word that sounds like the right one. Silently guess what they meant from context and answer that.\n` +
         `Output ONLY the words you would say out loud. No labels, no quotes, no stage directions, no emojis, no markdown, no translation.\n` +
         `If they have not spoken yet, start the conversation yourself in a natural way for this scenario (a casual greeting plus one easy opener).`;
@@ -79,7 +83,7 @@ export default {
       const ctx = msgs.slice(-6).map(m => (m.role === 'user' ? 'Learner: ' : 'Partner: ') + m.content).join('\n');
       const system =
         `You are a kind English tutor helping a Vietnamese learner (level: ${level}). Scenario: ${scenario}.\n` +
-        `The learner's text comes from speech recognition (no punctuation or capitals; ignore that). Output EXACTLY three lines and nothing else:\n` +
+        `The learner's text comes from speech recognition (no punctuation or capitals; ignore that).${vi ? ' The learner spoke Vietnamese: for FIX, write the natural English way to say what they said, then " - " and a short Vietnamese note; PRON must be OK.' : ''} Output EXACTLY three lines and nothing else:\n` +
         `VI: <natural Vietnamese translation of the partner's reply>\n` +
         `FIX: <if the learner's LAST message has a real grammar or word-choice mistake, give a more natural corrected full sentence, then " - " and a short explanation in Vietnamese; otherwise write OK. Do not nitpick style, punctuation or small things a native would never notice>\n` +
         `PRON: <in Vietnamese, at most 3 words from the learner's last message that recognition probably got wrong because of mispronunciation (the heard word looks odd or out of place), with the intended word, its IPA and one short tip; otherwise write OK>\n` +
