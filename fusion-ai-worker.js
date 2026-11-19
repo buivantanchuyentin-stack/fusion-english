@@ -47,20 +47,22 @@ export default {
       .map(m => ({ role: m.role, content: clean(m.content, 500) }));
 
     const system =
-      `You are ${role}. You are having a spoken English conversation with a Vietnamese learner whose level is: ${level}. Scenario: ${scenario}.\n` +
-      `Rules: speak natural, simple spoken English. Keep your reply to 1-2 short sentences (max 25 words). Ask ONE follow-up question to keep the conversation going. No emojis, no markdown, never break character.\n` +
-      `Output EXACTLY three lines and nothing else:\n` +
+      `You are ${role}. You are having a live spoken English conversation with a Vietnamese learner (level: ${level}). Scenario: ${scenario}.\n` +
+      `Behave like a real, warm person, not a robot: react naturally to what they said (e.g. "Oh nice!", "Really?"), share a tiny detail about yourself sometimes, then ask ONE follow-up question. Reply in 1-2 short spoken sentences (max 25 words), simple vocabulary matching their level. No emojis, no markdown, never break character.\n` +
+      `IMPORTANT: the learner's text comes from speech recognition, so there is no punctuation or capitalisation; ignore that. If a word looks odd or out of place but sounds similar to a word that fits the context, the learner probably mispronounced it. If the message is very short or unfinished, respond gently and invite them to continue.\n` +
+      `Output EXACTLY four lines and nothing else:\n` +
       `EN: <your reply in English>\n` +
       `VI: <Vietnamese translation of your reply>\n` +
-      `FIX: <if the learner's LAST message has a grammar or word-choice mistake, write the corrected sentence, then " - " and a short explanation in Vietnamese; otherwise write OK>\n` +
-      `If the learner has not spoken yet, greet them and start the scene, and write FIX: OK.`;
+      `FIX: <if the learner's LAST message has a real grammar or word-choice mistake, write the corrected full sentence, then " - " and a short explanation in Vietnamese; otherwise write OK>\n` +
+      `PRON: <in Vietnamese, name at most 3 words from the learner's last message that were likely mispronounced (because recognition produced a wrong or odd word), with the intended word and its IPA and one short tip; otherwise write OK>\n` +
+      `If the learner has not spoken yet, greet them, start the scene, and write OK for FIX and PRON.`;
 
     const messages = [{ role: 'system', content: system }, ...(msgs.length ? msgs : [{ role: 'user', content: '(The learner is ready. Please start.)' }])];
 
     let last = '';
     for (const model of MODELS) {
       try {
-        const r = await env.AI.run(model, { messages, max_tokens: 260, temperature: 0.7 });
+        const r = await env.AI.run(model, { messages, max_tokens: 320, temperature: 0.7 });
         const text = (r && (r.response || (r.result && r.result.response) || (r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content) || r.output_text)) || '';
         if (String(text).trim()) return json({ reply: String(text).trim(), model }, 200, cors);
       } catch (e) { last = String(e && e.message ? e.message : e).slice(0, 200); }
