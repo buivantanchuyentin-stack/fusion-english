@@ -673,7 +673,7 @@ window.FusionAI = (() => {
   const $ = s => document.getElementById(s);
   const panel = $('faPanel'), msgs = $('faM'), inp = $('faI');
   let sound = false, busy = false, lastSel = '', rec = null;
-  const pageTitle = () => (document.title || '').replace(/\s*·\s*Fusion English\s*$/, '');
+  const pageTitle = () => (document.title || '').replace(/\s*·\s*Fusion English\s*$/, '').replace(/&amp;/g, '&');
   const ctxTxt = () => { $('faCtx').textContent = 'Đang ở: ' + pageTitle() + (lastSel ? ' · đã chọn: “' + lastSel.slice(0, 40) + (lastSel.length > 40 ? '…' : '') + '”' : ''); };
   const QUICK = [['Giải thích đoạn tôi chọn', 'sel'], ['Dịch đoạn tôi chọn', 'tr'], ['Tóm tắt trang này', 'sum'], ['Tôi nên học gì tiếp?', 'next'], ['Sửa câu tiếng Anh của tôi', 'fix']];
   $('faQ').innerHTML = QUICK.map(q => `<span data-q="${q[1]}">${esc(q[0])}</span>`).join('');
