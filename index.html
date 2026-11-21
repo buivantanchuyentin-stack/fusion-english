@@ -606,4 +606,157 @@ addEventListener('hashchange',go);
 document.addEventListener('DOMContentLoaded',go);
 if(document.readyState!=='loading')go();
 </script>
+<script>
+"use strict";
+/* Trợ lý AI toàn trang */
+if(!window.FusionAI){
+/* Lõi gọi AI miễn phí (không cần khóa) dùng chung cho các trang: Quiz, ... */
+window.FusionAI = (() => {
+  const PUB = 'https://text.pollinations.ai/openai', MODELS = ['openai-fast', 'openai', 'mistral'];
+  async function chat(messages, o) {
+    o = o || {}; let last = null;
+    for (const model of MODELS) {
+      const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), o.timeout || 45000);
+      try {
+        const r = await fetch(PUB, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal, body: JSON.stringify({ model, messages, max_tokens: o.max_tokens || 900, temperature: o.temperature == null ? 0.4 : o.temperature }) });
+        const j = await r.json(); const t = String(j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || '').trim();
+        if (r.ok && t) return t; last = new Error('empty');
+      } catch (e) { last = e; } finally { clearTimeout(to); }
+    }
+    throw last || new Error('ai_failed');
+  }
+  function json(t) { const m = String(t).match(/\{[\s\S]*\}/); if (!m) throw new Error('nojson'); return JSON.parse(m[0]); }
+  return { chat, json };
+})();
+
+}
+/* Trợ lý AI Fusion: nút nổi trên mọi trang. Hiểu trang đang xem, đoạn chữ bạn bôi đen, tiến độ học; hỏi bằng gõ hoặc giọng nói. */
+(() => {
+  if (document.getElementById('faBtn')) return;
+  const { esc, toast } = Fusion;
+  const KEY = 'fusion_assistant_v1';
+  let H = []; try { H = JSON.parse(localStorage.getItem(KEY) || '[]'); if (!Array.isArray(H)) H = []; } catch (e) { H = []; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(H.slice(-40))); } catch (e) { } };
+  const css = document.createElement('style'); css.textContent = `
+  #faBtn{position:fixed;right:16px;bottom:16px;z-index:60;width:56px;height:56px;border-radius:50%;border:0;background:var(--pri);color:var(--pri-ink);font:700 17px var(--font-h);box-shadow:0 6px 20px rgba(0,0,0,.28);cursor:pointer}
+  #faBtn:hover{transform:scale(1.05)}
+  #faPanel{position:fixed;right:16px;bottom:84px;z-index:61;width:min(400px,calc(100vw - 24px));height:min(600px,calc(100vh - 110px));display:none;flex-direction:column;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 12px 40px rgba(0,0,0,.3);overflow:hidden}
+  #faPanel.on{display:flex}
+  .fa-h{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--pri2)}
+  .fa-h b{flex:1;font-family:var(--font-h)}
+  .fa-h button,.fa-in button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:5px 9px;cursor:pointer;font:inherit;font-size:13px}
+  .fa-ctx{font-size:12px;color:var(--mut);padding:6px 12px 0}
+  .fa-q{display:flex;gap:6px;flex-wrap:wrap;padding:6px 12px}
+  .fa-q span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;cursor:pointer;background:var(--card)}
+  .fa-q span:hover{background:var(--pri2)}
+  .fa-m{flex:1;overflow:auto;padding:8px 12px}
+  .fa-b{margin:8px 0;padding:9px 11px;border-radius:12px;font-size:14px;line-height:1.5;max-width:92%;word-wrap:break-word}
+  .fa-b.u{margin-left:auto;background:var(--pri);color:var(--pri-ink)}
+  .fa-b.a{background:var(--pri2)}
+  .fa-b .sp{display:inline-block;margin-top:4px;border:0;background:none;color:var(--pri);cursor:pointer;font-size:12px;padding:0}
+  .fa-in{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+  .fa-in input{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:var(--bg);color:var(--ink);font:inherit}
+  .fa-in .rec{background:var(--coral);color:#fff;border-color:var(--coral)}
+  #faSel{position:absolute;z-index:62;display:none;border:0;background:var(--pri);color:var(--pri-ink);border-radius:999px;padding:5px 12px;font:600 13px var(--font-h);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+  @media(max-width:560px){#faPanel{right:8px;left:8px;width:auto;bottom:76px;height:min(78vh,640px)}#faBtn{right:12px;bottom:12px}}`;
+  document.head.appendChild(css);
+  const root = document.createElement('div');
+  root.innerHTML = `<button id="faBtn" type="button" aria-label="Mở trợ lý AI" title="Trợ lý AI">AI</button>
+  <div id="faPanel" role="dialog" aria-label="Trợ lý AI Fusion">
+    <div class="fa-h"><b>Trợ lý AI Fusion</b><button type="button" id="faSnd" title="Đọc to câu trả lời">🔇</button><button type="button" id="faClr" title="Xóa lịch sử">Xóa</button><button type="button" id="faX" aria-label="Đóng">✕</button></div>
+    <div class="fa-ctx" id="faCtx"></div>
+    <div class="fa-q" id="faQ"></div>
+    <div class="fa-m" id="faM" aria-live="polite"></div>
+    <form class="fa-in" id="faF" autocomplete="off"><input id="faI" type="text" maxlength="600" placeholder="Hỏi bất cứ điều gì về tiếng Anh…"><button type="button" id="faMic" title="Nói (nói “finish” để gửi)">🎤</button><button type="submit" id="faGo">Gửi</button></form>
+  </div><button id="faSel" type="button">Hỏi AI</button>`;
+  document.body.appendChild(root);
+  const $ = s => document.getElementById(s);
+  const panel = $('faPanel'), msgs = $('faM'), inp = $('faI');
+  let sound = false, busy = false, lastSel = '', rec = null;
+  const pageTitle = () => (document.title || '').replace(/\s*·\s*Fusion English\s*$/, '');
+  const ctxTxt = () => { $('faCtx').textContent = 'Đang ở: ' + pageTitle() + (lastSel ? ' · đã chọn: “' + lastSel.slice(0, 40) + (lastSel.length > 40 ? '…' : '') + '”' : ''); };
+  const QUICK = [['Giải thích đoạn tôi chọn', 'sel'], ['Dịch đoạn tôi chọn', 'tr'], ['Tóm tắt trang này', 'sum'], ['Tôi nên học gì tiếp?', 'next'], ['Sửa câu tiếng Anh của tôi', 'fix']];
+  $('faQ').innerHTML = QUICK.map(q => `<span data-q="${q[1]}">${esc(q[0])}</span>`).join('');
+  const rich = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/^\s*[-*]\s+/gm, '• ').replace(/\n/g, '<br>');
+  const isVi = t => /[ăâđêôơưàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]/i.test(t);
+  function say(t) {
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t.replace(/\*+/g, '')); const vi = isVi(t); u.lang = vi ? 'vi-VN' : 'en-US'; const v = speechSynthesis.getVoices().filter(x => x.lang.toLowerCase().startsWith(vi ? 'vi' : 'en')); const p = v.find(x => /(google|natural|online|neural)/i.test(x.name)) || v[0]; if (p) u.voice = p; u.rate = 0.95; speechSynthesis.speak(u); } catch (e) { }
+  }
+  function add(role, text) {
+    const d = document.createElement('div'); d.className = 'fa-b ' + (role === 'user' ? 'u' : 'a');
+    d.innerHTML = role === 'user' ? esc(text) : rich(text) + '<br><button class="sp" type="button">🔊 Nghe</button>';
+    const sp = d.querySelector('.sp'); if (sp) sp.onclick = () => say(text);
+    msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d;
+  }
+  function render() { msgs.innerHTML = ''; if (!H.length) { const d = document.createElement('div'); d.className = 'fa-b a'; d.innerHTML = 'Xin chào! Mình là trợ lý AI của Fusion English. Bạn có thể hỏi mình bất cứ điều gì: ngữ pháp, từ vựng, dịch câu, sửa câu, giải thích bài đang xem… Bôi đen một đoạn chữ trên trang rồi bấm “Hỏi AI” để mình giải thích ngay.'; msgs.appendChild(d); } H.forEach(m => add(m.role, m.content)); }
+  render(); ctxTxt();
+  const open = v => { panel.classList.toggle('on', v); if (v) { ctxTxt(); inp.focus(); msgs.scrollTop = msgs.scrollHeight; } else { stopRec(); try { speechSynthesis.cancel(); } catch (e) { } } };
+  $('faBtn').onclick = () => open(!panel.classList.contains('on'));
+  $('faX').onclick = () => open(false);
+  $('faSnd').onclick = () => { sound = !sound; $('faSnd').textContent = sound ? '🔊' : '🔇'; if (!sound) { try { speechSynthesis.cancel(); } catch (e) { } } };
+  $('faClr').onclick = () => { if (confirm('Xóa lịch sử trò chuyện với trợ lý AI?')) { H = []; save(); render(); } };
+  
+  /* bôi đen chữ → nút “Hỏi AI” */
+  const selBtn = $('faSel');
+  function readSel() {
+    const s = getSelection(), t = s ? String(s).replace(/\s+/g, ' ').trim() : '';
+    if (!t || t.length < 2 || (s.anchorNode && root.contains(s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentNode))) { selBtn.style.display = 'none'; return; }
+    lastSel = t.slice(0, 1200); ctxTxt();
+    try { const r = s.getRangeAt(0).getBoundingClientRect(); selBtn.style.left = Math.max(8, Math.min(innerWidth - 90, r.left + scrollX)) + 'px'; selBtn.style.top = (r.bottom + scrollY + 8) + 'px'; selBtn.style.display = 'block'; } catch (e) { }
+  }
+  document.addEventListener('mouseup', () => setTimeout(readSel, 10)); document.addEventListener('keyup', e => { if (e.key === 'Shift') readSel(); }); document.addEventListener('touchend', () => setTimeout(readSel, 300));
+  document.addEventListener('mousedown', e => { if (e.target !== selBtn) selBtn.style.display = 'none'; });
+  selBtn.onmousedown = e => e.preventDefault();
+  addEventListener('hashchange', () => { lastSel = ''; selBtn.style.display = 'none'; ctxTxt(); });
+  selBtn.onclick = () => { selBtn.style.display = 'none'; open(true); ask('Giải thích đoạn này giúp mình: “' + lastSel + '”'); };
+  /* ngữ cảnh gửi cho AI */
+  function sysPrompt() {
+    const S = Fusion.S || {}, qs = Object.values(S.q || {}), r = qs.reduce((a, x) => a + (x.r || 0), 0), w = qs.reduce((a, x) => a + (x.w || 0), 0);
+    const view = (document.getElementById('view') || {}).innerText || '';
+    return 'You are "Fusion AI", the built-in AI tutor and assistant of the Fusion English self-study website for Vietnamese learners (based on the Fusion textbook by Thầy Vũ). Help with ANYTHING the learner asks: English grammar, vocabulary, pronunciation, translation, checking and correcting their sentences, explaining the lesson on screen, study advice, and general questions.\n' +
+      'Answer in clear, friendly Vietnamese by default, with English examples (each example followed by a Vietnamese translation). If the learner writes in English and wants to practise, answer in simple English. Be accurate and concise (under 180 words unless they ask for more). Use **bold** for key words; no tables, no headings. If you are not sure, say so instead of guessing.\n' +
+      'The website has these places you can recommend when useful: Từ điển (#/dictionary), Phát âm IPA (#/ipa), Ngữ pháp (#/grammar), Hội thoại (#/talk), Trò chuyện mỗi ngày (#/chat), Quiz (#/quiz), Flashcard (#/flashcards), Nghe & chép (#/dictation), Luyện phát âm (#/pronunciation), Bài học (#/lessons), Kho từ (#/mywords).\n' +
+      'Learner progress: XP ' + (S.xp || 0) + ', streak ' + (S.streak || 0) + ' days, quiz answers ' + (r + w) + ' (' + (r + w ? Math.round(r / (r + w) * 100) : 0) + '% correct), saved words ' + Object.keys(S.my || {}).length + '.\n' +
+      'The learner is currently on the page: "' + pageTitle() + '" (' + (location.hash || '#/') + ').' + (lastSel ? '\nText they selected on the page: "' + lastSel + '"' : '') + '\nVisible page text (may be partial):\n' + view.replace(/\s+/g, ' ').slice(0, 1500);
+  }
+  async function ask(text) {
+    text = (text || '').trim(); if (!text || busy) return; busy = true;
+    add('user', text); H.push({ role: 'user', content: text }); save(); inp.value = '';
+    const w = add('assistant', 'Đang suy nghĩ…'); w.querySelector('.sp') && w.querySelector('.sp').remove();
+    try {
+      const a = await FusionAI.chat([{ role: 'system', content: sysPrompt() }].concat(H.slice(-12)), { max_tokens: 900, temperature: 0.5, timeout: 45000 });
+      H.push({ role: 'assistant', content: a }); save(); w.remove(); add('assistant', a); if (sound) say(a);
+    } catch (e) { w.innerHTML = 'Mình chưa trả lời được (có thể mất mạng hoặc dịch vụ AI miễn phí đang bận). Bạn thử lại sau ít phút nhé.'; H.pop(); save(); }
+    busy = false; msgs.scrollTop = msgs.scrollHeight;
+  }
+  $('faF').onsubmit = e => { e.preventDefault(); ask(inp.value); };
+  $('faQ').onclick = e => {
+    const c = e.target.closest('[data-q]'); if (!c) return; const k = c.dataset.q;
+    if ((k === 'sel' || k === 'tr') && !lastSel) { toast('Hãy bôi đen một đoạn chữ trên trang trước, rồi bấm lại.'); return; }
+    if (k === 'sel') ask('Giải thích đoạn này giúp mình: “' + lastSel + '”');
+    else if (k === 'tr') ask('Dịch đoạn này sang tiếng Việt (hoặc sang tiếng Anh nếu nó là tiếng Việt) và giải thích từ khó: “' + lastSel + '”');
+    else if (k === 'sum') ask('Tóm tắt ngắn gọn nội dung trang mình đang xem và nêu 3 điểm quan trọng cần nhớ.');
+    else if (k === 'next') ask('Dựa vào tiến độ của mình, mình nên học gì tiếp theo? Gợi ý ngắn gọn, cụ thể.');
+    else { inp.value = ''; inp.placeholder = 'Gõ câu tiếng Anh của bạn, mình sẽ sửa lỗi…'; inp.focus(); H.push({ role: 'user', content: '(Từ giờ hãy sửa lỗi ngữ pháp và cách dùng từ cho từng câu tiếng Anh mình gõ: đưa câu đúng, rồi giải thích lỗi ngắn gọn bằng tiếng Việt.)' }); save(); add('assistant', 'Được rồi! Bạn gõ một câu tiếng Anh, mình sẽ sửa và giải thích lỗi.'); H.push({ role: 'assistant', content: 'Được rồi! Bạn gõ một câu tiếng Anh, mình sẽ sửa và giải thích lỗi.' }); save(); }
+  };
+  /* giọng nói: bấm 🎤, nói thoải mái, nói “finish” để gửi */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let mbuf = '', mses = '', mft = null;
+  const FINM = /(?:^|\s)(finish|finnish)[\s.,!?]*$/i;
+  function stopRec() { clearTimeout(mft); try { if (rec) { rec.onend = null; rec.abort(); } } catch (e) { } rec = null; $('faMic').classList.remove('rec'); }
+  function startMic() {
+    const r = new SR(); rec = r; r.lang = isVi(inp.value) ? 'vi-VN' : 'en-US'; r.continuous = true; r.interimResults = true; mses = ''; $('faMic').classList.add('rec');
+    r.onresult = ev => { let t = ''; for (let k = 0; k < ev.results.length; k++) t += ev.results[k][0].transcript + ' '; mses = t.trim(); const f = (mbuf + ' ' + mses).trim(); inp.value = f.replace(FINM, '').trim(); clearTimeout(mft); if (FINM.test(f)) mft = setTimeout(() => { const v = inp.value; stopRec(); ask(v); }, 650); };
+    r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { toast('Chưa cho dùng micro. Hãy cho phép micro cho trang này.'); stopRec(); } };
+    r.onend = () => { if (rec !== r) return; mbuf = (mbuf + ' ' + mses).trim(); mses = ''; rec = null; startMic(); }; /* trình duyệt tự ngắt khi im lâu: nghe tiếp, giữ lời đã nói */
+    try { r.start(); } catch (e) { rec = null; $('faMic').classList.remove('rec'); }
+  }
+  $('faMic').onclick = () => {
+    if (!SR) { toast('Trình duyệt này chưa hỗ trợ nhận giọng nói (dùng Chrome hoặc Edge).'); return; }
+    if (rec) { stopRec(); return; }
+    mbuf = inp.value.trim(); toast('Đang nghe. Nói xong thì nói “finish”.'); startMic();
+  };
+})();
+
+</script>
 </body></html>
